@@ -33,7 +33,7 @@ export function PhotoGrid({ photos, showAlbumName = false }: PhotoGridProps) {
             onClick={() => setLightboxIndex(index)}
           >
             <Image
-              src={`/uploads/${photo.filename}`}
+              src={photo.image_url}
               alt={photo.title || "Photo"}
               width={800}
               height={600}

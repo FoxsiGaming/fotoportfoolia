@@ -1,13 +1,29 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { getSettings } from "@/lib/data";
-
-export const dynamic = "force-dynamic";
-
-export const metadata = {
-  title: "About | Portfolio",
-};
+import type { SiteSettings } from "@/lib/types";
 
 export default function AboutPage() {
-  const settings = getSettings();
+  const [settings, setSettings] = useState<SiteSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      const s = await getSettings();
+      setSettings(s);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
+        <div className="w-6 h-6 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="page-enter pt-24">
@@ -18,7 +34,7 @@ export default function AboutPage() {
 
         <div className="space-y-8">
           <p className="text-[var(--text-secondary)] text-base leading-relaxed text-center font-light">
-            {settings.about_text ||
+            {settings?.about_text ||
               "A passionate photographer capturing moments that matter."}
           </p>
 
@@ -31,7 +47,7 @@ export default function AboutPage() {
 
           {/* Contact info */}
           <div className="text-center space-y-4">
-            {settings.contact_email && (
+            {settings?.contact_email && (
               <p className="text-sm text-[var(--text-muted)]">
                 <a
                   href={`mailto:${settings.contact_email}`}
@@ -41,7 +57,7 @@ export default function AboutPage() {
                 </a>
               </p>
             )}
-            {settings.instagram_url && (
+            {settings?.instagram_url && (
               <p className="text-sm">
                 <a
                   href={settings.instagram_url}

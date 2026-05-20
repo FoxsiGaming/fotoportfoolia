@@ -1,281 +1,355 @@
 /**
- * Data access layer — all database queries in one place.
- * Clean separation between DB and route handlers.
+ * Data access layer — all Supabase queries in one place.
+ * These are client-side calls that run in the browser.
  */
-import { getDb } from "./db";
-import { v4 as uuidv4 } from "uuid";
+import { supabase } from "./supabase";
 import type { Album, Photo, SiteSettings } from "./types";
 
 // ─── Albums ──────────────────────────────────────────────
 
-export function getAllAlbums(): Album[] {
-  const db = getDb();
-  const albums = db
-    .prepare(
-      `SELECT a.*,
-              (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count
-       FROM albums a
-       ORDER BY a.sort_order ASC, a.created_at DESC`
-    )
-    .all() as Album[];
+export async function getAllAlbums(): Promise<Album[]> {
+  const { data: albums, error } = await supabase
+    .from("albums")
+    .select("*")
+    .order("sort_order", { ascending: true });
 
-  // Attach cover photos
-  return albums.map((album) => {
-    if (album.cover_photo_id) {
-      album.cover_photo = db
-        .prepare("SELECT * FROM photos WHERE id = ?")
-        .get(album.cover_photo_id) as Photo | undefined;
-    }
-    if (!album.cover_photo) {
-      // Fallback: use first photo in album
-      album.cover_photo = db
-        .prepare(
-          "SELECT * FROM photos WHERE album_id = ? ORDER BY sort_order ASC LIMIT 1"
-        )
-        .get(album.id) as Photo | undefined;
-    }
-    return album;
-  });
+  if (error || !albums) return [];
+
+  // Get photo counts and cover photos
+  const enriched = await Promise.all(
+    albums.map(async (album) => {
+      const { count } = await supabase
+        .from("photos")
+        .select("*", { count: "exact", head: true })
+        .eq("album_id", album.id);
+
+      let cover_photo: Photo | null = null;
+      if (album.cover_photo_id) {
+        const { data } = await supabase
+          .from("photos")
+          .select("*")
+          .eq("id", album.cover_photo_id)
+          .single();
+        cover_photo = data;
+      }
+      if (!cover_photo) {
+        const { data } = await supabase
+          .from("photos")
+          .select("*")
+          .eq("album_id", album.id)
+          .order("sort_order", { ascending: true })
+          .limit(1)
+          .single();
+        cover_photo = data;
+      }
+
+      return { ...album, photo_count: count || 0, cover_photo };
+    })
+  );
+
+  return enriched;
 }
 
-export function getAlbumBySlug(slug: string): Album | undefined {
-  const db = getDb();
-  return db
-    .prepare("SELECT * FROM albums WHERE slug = ?")
-    .get(slug) as Album | undefined;
+export async function getAlbumBySlug(slug: string): Promise<Album | null> {
+  const { data, error } = await supabase
+    .from("albums")
+    .select("*")
+    .eq("slug", slug)
+    .single();
+
+  if (error || !data) return null;
+  return data;
 }
 
-export function getAlbumById(id: string): Album | undefined {
-  const db = getDb();
-  return db
-    .prepare("SELECT * FROM albums WHERE id = ?")
-    .get(id) as Album | undefined;
+export async function getAlbumById(id: string): Promise<Album | null> {
+  const { data, error } = await supabase
+    .from("albums")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error || !data) return null;
+  return data;
 }
 
-export function createAlbum(name: string, description = ""): Album {
-  const db = getDb();
-  const id = uuidv4();
+export async function createAlbum(
+  name: string,
+  description = ""
+): Promise<Album | null> {
   const slug = slugify(name);
-  const maxOrder = (
-    db.prepare("SELECT MAX(sort_order) as max FROM albums").get() as {
-      max: number | null;
-    }
-  ).max;
 
-  db.prepare(
-    "INSERT INTO albums (id, name, slug, description, sort_order) VALUES (?, ?, ?, ?, ?)"
-  ).run(id, name, slug, description, (maxOrder ?? -1) + 1);
+  // Get max sort order
+  const { data: maxRow } = await supabase
+    .from("albums")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .single();
 
-  return getAlbumById(id)!;
+  const sortOrder = (maxRow?.sort_order ?? -1) + 1;
+
+  const { data, error } = await supabase
+    .from("albums")
+    .insert({ name, slug, description, sort_order: sortOrder })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error creating album:", error);
+    return null;
+  }
+  return data;
 }
 
-export function updateAlbum(
+export async function updateAlbum(
   id: string,
-  data: Partial<Pick<Album, "name" | "description" | "cover_photo_id">>
-): Album | undefined {
-  const db = getDb();
-  const updates: string[] = [];
-  const values: unknown[] = [];
-
-  if (data.name !== undefined) {
-    updates.push("name = ?", "slug = ?");
-    values.push(data.name, slugify(data.name));
-  }
-  if (data.description !== undefined) {
-    updates.push("description = ?");
-    values.push(data.description);
-  }
-  if (data.cover_photo_id !== undefined) {
-    updates.push("cover_photo_id = ?");
-    values.push(data.cover_photo_id);
+  updates: Partial<Pick<Album, "name" | "description" | "cover_photo_id">>
+): Promise<Album | null> {
+  const patch: Record<string, unknown> = { ...updates };
+  if (updates.name) {
+    patch.slug = slugify(updates.name);
   }
 
-  if (updates.length > 0) {
-    updates.push("updated_at = datetime('now')");
-    values.push(id);
-    db.prepare(`UPDATE albums SET ${updates.join(", ")} WHERE id = ?`).run(
-      ...values
-    );
-  }
+  const { data, error } = await supabase
+    .from("albums")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
 
-  return getAlbumById(id);
+  if (error) {
+    console.error("Error updating album:", error);
+    return null;
+  }
+  return data;
 }
 
-export function deleteAlbum(id: string): void {
-  const db = getDb();
-  db.prepare("DELETE FROM albums WHERE id = ?").run(id);
+export async function deleteAlbum(id: string): Promise<boolean> {
+  // Photos are cascade-deleted by the FK constraint
+  const { error } = await supabase.from("albums").delete().eq("id", id);
+  return !error;
 }
 
 // ─── Photos ──────────────────────────────────────────────
 
-export function getPhotosByAlbum(albumId: string): Photo[] {
-  const db = getDb();
-  return db
-    .prepare("SELECT * FROM photos WHERE album_id = ? ORDER BY sort_order ASC")
-    .all(albumId) as Photo[];
+export async function getPhotosByAlbum(albumId: string): Promise<Photo[]> {
+  const { data, error } = await supabase
+    .from("photos")
+    .select("*")
+    .eq("album_id", albumId)
+    .order("sort_order", { ascending: true });
+
+  if (error) return [];
+  return data || [];
 }
 
-export function getPhotoById(id: string): Photo | undefined {
-  const db = getDb();
-  const photo = db
-    .prepare(
-      `SELECT p.*, a.name as album_name, a.slug as album_slug
-       FROM photos p
-       JOIN albums a ON p.album_id = a.id
-       WHERE p.id = ?`
-    )
-    .get(id) as Photo | undefined;
-  return photo;
+export async function getPhotoById(id: string): Promise<Photo | null> {
+  const { data, error } = await supabase
+    .from("photos")
+    .select("*, albums(name, slug)")
+    .eq("id", id)
+    .single();
+
+  if (error || !data) return null;
+
+  // Flatten the joined album data
+  const album = data.albums as unknown as { name: string; slug: string } | null;
+  return {
+    ...data,
+    album_name: album?.name,
+    album_slug: album?.slug,
+    albums: undefined,
+  } as Photo;
 }
 
-export function getFeaturedPhotos(limit = 20): Photo[] {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT p.*, a.name as album_name, a.slug as album_slug
-       FROM photos p
-       JOIN albums a ON p.album_id = a.id
-       WHERE p.featured = 1
-       ORDER BY p.sort_order ASC
-       LIMIT ?`
-    )
-    .all(limit) as Photo[];
+export async function getFeaturedPhotos(limit = 20): Promise<Photo[]> {
+  const { data, error } = await supabase
+    .from("photos")
+    .select("*, albums(name, slug)")
+    .eq("featured", true)
+    .order("sort_order", { ascending: true })
+    .limit(limit);
+
+  if (error) return [];
+  return (data || []).map((p) => {
+    const album = p.albums as unknown as { name: string; slug: string } | null;
+    return { ...p, album_name: album?.name, album_slug: album?.slug };
+  }) as Photo[];
 }
 
-export function getAllPhotos(limit = 100): Photo[] {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT p.*, a.name as album_name, a.slug as album_slug
-       FROM photos p
-       JOIN albums a ON p.album_id = a.id
-       ORDER BY p.created_at DESC
-       LIMIT ?`
-    )
-    .all(limit) as Photo[];
+export async function getAllPhotos(limit = 100): Promise<Photo[]> {
+  const { data, error } = await supabase
+    .from("photos")
+    .select("*, albums(name, slug)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) return [];
+  return (data || []).map((p) => {
+    const album = p.albums as unknown as { name: string; slug: string } | null;
+    return { ...p, album_name: album?.name, album_slug: album?.slug };
+  }) as Photo[];
 }
 
-export function createPhoto(data: {
+export async function createPhoto(data: {
   album_id: string;
+  image_url: string;
   filename: string;
-  original_name: string;
   title?: string;
   width?: number;
   height?: number;
-}): Photo {
-  const db = getDb();
-  const id = uuidv4();
-  const maxOrder = (
-    db
-      .prepare(
-        "SELECT MAX(sort_order) as max FROM photos WHERE album_id = ?"
-      )
-      .get(data.album_id) as { max: number | null }
-  ).max;
+}): Promise<Photo | null> {
+  // Get max sort order in album
+  const { data: maxRow } = await supabase
+    .from("photos")
+    .select("sort_order")
+    .eq("album_id", data.album_id)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .single();
 
-  db.prepare(
-    `INSERT INTO photos (id, album_id, filename, original_name, title, width, height, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    data.album_id,
-    data.filename,
-    data.original_name,
-    data.title || data.original_name.replace(/\.[^.]+$/, ""),
-    data.width || 0,
-    data.height || 0,
-    (maxOrder ?? -1) + 1
-  );
+  const sortOrder = (maxRow?.sort_order ?? -1) + 1;
 
-  return getPhotoById(id)!;
+  const { data: photo, error } = await supabase
+    .from("photos")
+    .insert({
+      album_id: data.album_id,
+      image_url: data.image_url,
+      filename: data.filename,
+      title: data.title || data.filename.replace(/\.[^.]+$/, ""),
+      width: data.width || 0,
+      height: data.height || 0,
+      sort_order: sortOrder,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error creating photo:", error);
+    return null;
+  }
+  return photo;
 }
 
-export function updatePhoto(
+export async function updatePhoto(
   id: string,
-  data: Partial<
-    Pick<Photo, "title" | "description" | "featured" | "album_id"> & {
-      exif_camera?: string;
-      exif_lens?: string;
-      exif_focal_length?: string;
-      exif_aperture?: string;
-      exif_shutter?: string;
-      exif_iso?: string;
-    }
+  updates: Partial<
+    Pick<Photo, "title" | "description" | "featured" | "album_id">
   >
-): Photo | undefined {
-  const db = getDb();
-  const updates: string[] = [];
-  const values: unknown[] = [];
+): Promise<Photo | null> {
+  const { data, error } = await supabase
+    .from("photos")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
 
-  for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined) {
-      updates.push(`${key} = ?`);
-      values.push(value);
-    }
-  }
-
-  if (updates.length > 0) {
-    values.push(id);
-    db.prepare(`UPDATE photos SET ${updates.join(", ")} WHERE id = ?`).run(
-      ...values
-    );
-  }
-
-  return getPhotoById(id);
+  if (error) return null;
+  return data;
 }
 
-export function deletePhoto(id: string): void {
-  const db = getDb();
-  db.prepare("DELETE FROM photos WHERE id = ?").run(id);
+export async function deletePhoto(id: string): Promise<boolean> {
+  // Also delete from storage
+  const photo = await getPhotoById(id);
+  if (photo?.filename) {
+    await supabase.storage.from("photos").remove([photo.filename]);
+  }
+
+  const { error } = await supabase.from("photos").delete().eq("id", id);
+  return !error;
 }
 
-export function reorderPhotos(
+export async function reorderPhotos(
   albumId: string,
   photoIds: string[]
-): void {
-  const db = getDb();
-  const stmt = db.prepare(
-    "UPDATE photos SET sort_order = ? WHERE id = ? AND album_id = ?"
+): Promise<boolean> {
+  const updates = photoIds.map((id, index) =>
+    supabase
+      .from("photos")
+      .update({ sort_order: index })
+      .eq("id", id)
+      .eq("album_id", albumId)
   );
-  const transaction = db.transaction(() => {
-    photoIds.forEach((photoId, index) => {
-      stmt.run(index, photoId, albumId);
-    });
+
+  const results = await Promise.all(updates);
+  return results.every((r) => !r.error);
+}
+
+// ─── Upload ──────────────────────────────────────────────
+
+export async function uploadPhoto(
+  file: File,
+  albumId: string
+): Promise<Photo | null> {
+  const ext = file.name.split(".").pop();
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("photos")
+    .upload(filename, file);
+
+  if (uploadError) {
+    console.error("Upload error:", uploadError);
+    return null;
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("photos").getPublicUrl(filename);
+
+  return createPhoto({
+    album_id: albumId,
+    image_url: publicUrl,
+    filename,
+    title: file.name.replace(/\.[^.]+$/, ""),
   });
-  transaction();
 }
 
 // ─── Settings ────────────────────────────────────────────
 
-export function getSettings(): SiteSettings {
-  const db = getDb();
-  const rows = db.prepare("SELECT key, value FROM settings").all() as {
-    key: string;
-    value: string;
-  }[];
+export async function getSettings(): Promise<SiteSettings> {
+  const { data } = await supabase.from("settings").select("key, value");
+
+  const defaults: SiteSettings = {
+    site_title: "Portfolio",
+    site_subtitle: "Photography",
+    about_text: "A passionate photographer capturing moments that matter.",
+    contact_email: "",
+    instagram_url: "",
+  };
+
+  if (!data) return defaults;
+
   const settings: Record<string, string> = {};
-  for (const row of rows) {
+  for (const row of data) {
     settings[row.key] = row.value;
   }
-  return settings as unknown as SiteSettings;
+
+  return { ...defaults, ...settings } as SiteSettings;
 }
 
-export function updateSettings(
-  data: Partial<SiteSettings>
-): SiteSettings {
-  const db = getDb();
-  const stmt = db.prepare(
-    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)"
-  );
-  const transaction = db.transaction(() => {
-    for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined) {
-        stmt.run(key, value);
-      }
-    }
+// ─── Auth ────────────────────────────────────────────────
+
+export async function signIn(
+  email: string,
+  password: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
   });
-  transaction();
-  return getSettings();
+  return { error: error?.message || null };
+}
+
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
+}
+
+export async function getUser() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
 }
 
 // ─── Helpers ─────────────────────────────────────────────

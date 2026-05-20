@@ -130,7 +130,7 @@ export function Lightbox({
       >
         <div className="relative max-w-full max-h-full">
           <Image
-            src={`/uploads/${photo.filename}`}
+            src={photo.image_url}
             alt={photo.title || "Photo"}
             width={1920}
             height={1280}
