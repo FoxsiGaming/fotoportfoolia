@@ -1,34 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getSettings } from "@/lib/data";
+import type { SiteSettings } from "@/lib/types";
 
 export default function ContactPage() {
-  const [form, setForm] = useState({ name: "", email: "", message: "" });
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
-    "idle"
-  );
+  const [settings, setSettings] = useState<SiteSettings | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setStatus("sending");
-
-    try {
-      const res = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-
-      if (res.ok) {
-        setStatus("sent");
-        setForm({ name: "", email: "", message: "" });
-      } else {
-        setStatus("error");
-      }
-    } catch {
-      setStatus("error");
+  useEffect(() => {
+    async function load() {
+      const s = await getSettings();
+      setSettings(s);
+      setLoading(false);
     }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
+        <div className="w-6 h-6 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
+
+  const email = settings?.contact_email;
+  const instagram = settings?.instagram_url;
 
   return (
     <div className="page-enter pt-24">
@@ -40,83 +38,55 @@ export default function ContactPage() {
           Let&apos;s work together
         </p>
 
-        {status === "sent" ? (
-          <div className="text-center py-12 animate-slide-up">
-            <div className="w-12 h-12 mx-auto mb-6 rounded-full border border-[var(--accent)] flex items-center justify-center">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="1.5"
-              >
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-            </div>
-            <p className="text-[var(--text-secondary)] text-sm">
-              Thank you for your message. I&apos;ll get back to you soon.
-            </p>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="space-y-8 text-center">
+          {email ? (
             <div>
-              <label className="block text-xs tracking-[0.2em] uppercase text-[var(--text-muted)] mb-2">
-                Name
-              </label>
-              <input
-                type="text"
-                required
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full bg-transparent border-b border-[var(--border-light)] py-3 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none transition-colors placeholder:text-[var(--text-muted)]"
-                placeholder="Your name"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs tracking-[0.2em] uppercase text-[var(--text-muted)] mb-2">
+              <p className="text-xs tracking-[0.3em] uppercase text-[var(--text-muted)] mb-3">
                 Email
-              </label>
-              <input
-                type="email"
-                required
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="w-full bg-transparent border-b border-[var(--border-light)] py-3 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none transition-colors placeholder:text-[var(--text-muted)]"
-                placeholder="your@email.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs tracking-[0.2em] uppercase text-[var(--text-muted)] mb-2">
-                Message
-              </label>
-              <textarea
-                required
-                rows={5}
-                value={form.message}
-                onChange={(e) => setForm({ ...form, message: e.target.value })}
-                className="w-full bg-transparent border-b border-[var(--border-light)] py-3 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none transition-colors resize-none placeholder:text-[var(--text-muted)]"
-                placeholder="Tell me about your project..."
-              />
-            </div>
-
-            {status === "error" && (
-              <p className="text-red-400 text-xs tracking-wider">
-                Something went wrong. Please try again.
               </p>
-            )}
+              <a
+                href={`mailto:${email}`}
+                className="text-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors duration-300 font-light"
+              >
+                {email}
+              </a>
+            </div>
+          ) : null}
 
-            <button
-              type="submit"
-              disabled={status === "sending"}
-              className="w-full border border-[var(--accent)] py-3 text-xs tracking-[0.3em] uppercase text-[var(--accent)] hover:bg-[var(--accent)] hover:text-black transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {status === "sending" ? "Sending..." : "Send Message"}
-            </button>
-          </form>
-        )}
+          {instagram ? (
+            <div>
+              <p className="text-xs tracking-[0.3em] uppercase text-[var(--text-muted)] mb-3">
+                Instagram
+              </p>
+              <a
+                href={instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors duration-300 font-light tracking-wider"
+              >
+                Follow →
+              </a>
+            </div>
+          ) : null}
+
+          {!email && !instagram && (
+            <p className="text-[var(--text-muted)] text-sm">
+              Contact information can be configured in the admin panel.
+            </p>
+          )}
+
+          {/* Visual separator */}
+          <div className="flex items-center justify-center gap-4 py-8">
+            <div className="w-12 h-px bg-[var(--border-light)]" />
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
+            <div className="w-12 h-px bg-[var(--border-light)]" />
+          </div>
+
+          <p className="text-[var(--text-muted)] text-xs tracking-wider leading-relaxed max-w-sm mx-auto">
+            Available for commissions, collaborations, and print inquiries.
+            I&apos;ll get back to you as soon as possible.
+          </p>
+        </div>
       </div>
     </div>
   );

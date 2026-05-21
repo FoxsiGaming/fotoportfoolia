@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { getAllAlbums, createAlbum, deleteAlbum } from "@/lib/data";
 import type { Album } from "@/lib/types";
 
 export default function AdminDashboard() {
@@ -17,37 +18,20 @@ export default function AdminDashboard() {
   }, []);
 
   async function fetchAlbums() {
-    try {
-      const res = await fetch("/api/albums");
-      const data = await res.json();
-      setAlbums(data);
-    } catch (err) {
-      console.error("Failed to fetch albums:", err);
-    } finally {
-      setLoading(false);
-    }
+    const data = await getAllAlbums();
+    setAlbums(data);
+    setLoading(false);
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
 
-    try {
-      const res = await fetch("/api/albums", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() }),
-      });
-
-      if (res.ok) {
-        setNewName("");
-        setNewDesc("");
-        setShowCreate(false);
-        fetchAlbums();
-      }
-    } catch (err) {
-      console.error("Failed to create album:", err);
-    }
+    await createAlbum(newName.trim(), newDesc.trim());
+    setNewName("");
+    setNewDesc("");
+    setShowCreate(false);
+    fetchAlbums();
   }
 
   async function handleDelete(id: string, name: string) {
@@ -55,12 +39,8 @@ export default function AdminDashboard() {
       return;
     }
 
-    try {
-      await fetch(`/api/albums/${id}`, { method: "DELETE" });
-      fetchAlbums();
-    } catch (err) {
-      console.error("Failed to delete album:", err);
-    }
+    await deleteAlbum(id);
+    fetchAlbums();
   }
 
   if (loading) {
@@ -180,12 +160,12 @@ export default function AdminDashboard() {
             >
               {/* Album cover */}
               <Link
-                href={`/admin/albums/${album.id}`}
+                href={`/admin/albums?id=${album.id}`}
                 className="block relative aspect-[16/10] bg-[var(--bg-tertiary)] overflow-hidden"
               >
                 {album.cover_photo ? (
                   <Image
-                    src={`/uploads/${(album.cover_photo as { filename: string }).filename}`}
+                    src={album.cover_photo.image_url}
                     alt={album.name}
                     fill
                     className="object-cover transition-transform duration-500 group-hover:scale-105"
@@ -212,7 +192,7 @@ export default function AdminDashboard() {
 
               {/* Album info */}
               <div className="p-4 flex items-center justify-between">
-                <Link href={`/admin/albums/${album.id}`} className="flex-1">
+                <Link href={`/admin/albums?id=${album.id}`} className="flex-1">
                   <h3 className="text-sm font-light tracking-wider text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
                     {album.name}
                   </h3>

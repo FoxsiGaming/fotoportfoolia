@@ -92,7 +92,7 @@ export default function HomePage() {
             {albums.map((album) => (
               <Link
                 key={album.id}
-                href={`/gallery/${album.slug}`}
+                href={`/gallery?album=${album.slug}`}
                 className="group relative aspect-[4/3] overflow-hidden bg-[var(--bg-secondary)] rounded-sm"
               >
                 {album.cover_photo ? (
@@ -136,7 +136,7 @@ export default function HomePage() {
             {recentPhotos.slice(0, 6).map((photo) => (
               <Link
                 key={photo.id}
-                href={`/gallery/${photo.album_slug || ""}`}
+                href={photo.album_slug ? `/gallery?album=${photo.album_slug}` : "/gallery"}
                 className="photo-card relative aspect-square overflow-hidden bg-[var(--bg-secondary)] rounded-sm"
               >
                 <Image

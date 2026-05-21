@@ -3,62 +3,63 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
-    checkAuth();
-  }, []);
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
 
-  async function checkAuth() {
-    try {
-      const res = await fetch("/api/auth");
-      const data = await res.json();
-      setAuthenticated(data.authenticated);
-    } catch {
-      setAuthenticated(false);
-    }
-  }
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
 
-    try {
-      const res = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-      if (res.ok) {
-        setAuthenticated(true);
-        setPassword("");
-      } else {
-        setError("Invalid password");
-      }
-    } catch {
-      setError("Connection error");
+    if (error) {
+      setError(error.message);
+    } else {
+      setEmail("");
+      setPassword("");
     }
   }
 
   async function handleLogout() {
-    await fetch("/api/auth", { method: "DELETE" });
-    setAuthenticated(false);
+    await supabase.auth.signOut();
     router.push("/admin");
   }
 
   // Loading
-  if (authenticated === null) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center">
         <div className="w-6 h-6 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
@@ -67,7 +68,7 @@ export default function AdminLayout({
   }
 
   // Login screen
-  if (!authenticated) {
+  if (!user) {
     return (
       <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center px-6">
         <div className="w-full max-w-sm">
@@ -78,12 +79,21 @@ export default function AdminLayout({
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email"
+                className="w-full bg-transparent border-b border-[var(--border-light)] py-3 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none transition-colors placeholder:text-[var(--text-muted)]"
+                autoFocus
+              />
+            </div>
+            <div>
+              <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className="w-full bg-transparent border-b border-[var(--border-light)] py-3 text-sm text-center text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none transition-colors placeholder:text-[var(--text-muted)]"
-                autoFocus
+                className="w-full bg-transparent border-b border-[var(--border-light)] py-3 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none transition-colors placeholder:text-[var(--text-muted)]"
               />
             </div>
 
@@ -138,10 +148,23 @@ export default function AdminLayout({
               >
                 Albums
               </Link>
+              <Link
+                href="/admin/settings"
+                className={`text-xs tracking-wider transition-colors ${
+                  pathname === "/admin/settings"
+                    ? "text-[var(--accent)]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                }`}
+              >
+                Settings
+              </Link>
             </nav>
           </div>
 
           <div className="flex items-center gap-4">
+            <span className="text-xs text-[var(--text-muted)] hidden sm:inline">
+              {user.email}
+            </span>
             <Link
               href="/"
               className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] tracking-wider transition-colors"

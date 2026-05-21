@@ -3,13 +3,22 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import {
+  getAlbumById,
+  getPhotosByAlbum,
+  updateAlbum,
+  updatePhoto,
+  deletePhoto,
+  uploadPhoto,
+  reorderPhotos,
+} from "@/lib/data";
 import type { Album, Photo } from "@/lib/types";
 
 export default function AdminAlbumPage() {
-  const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const albumId = params.id as string;
+  const albumId = searchParams.get("id");
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -28,17 +37,22 @@ export default function AdminAlbumPage() {
   const dragOverItem = useRef<number | null>(null);
 
   const fetchAlbum = useCallback(async () => {
+    if (!albumId) {
+      router.push("/admin");
+      return;
+    }
     try {
-      const res = await fetch(`/api/albums/${albumId}`);
-      if (!res.ok) {
+      const data = await getAlbumById(albumId);
+      if (!data) {
         router.push("/admin");
         return;
       }
-      const data = await res.json();
       setAlbum(data);
-      setPhotos(data.photos || []);
       setAlbumName(data.name);
       setAlbumDesc(data.description || "");
+
+      const albumPhotos = await getPhotosByAlbum(albumId);
+      setPhotos(albumPhotos);
     } catch {
       router.push("/admin");
     } finally {
@@ -53,56 +67,35 @@ export default function AdminAlbumPage() {
   // ─── Upload ────────────────────────────────────────────
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || !albumId) return;
 
     setUploading(true);
     setUploadProgress(0);
 
-    const formData = new FormData();
-    formData.append("album_id", albumId);
+    const total = files.length;
+    let completed = 0;
+
     for (let i = 0; i < files.length; i++) {
-      formData.append("files", files[i]);
+      await uploadPhoto(files[i], albumId);
+      completed++;
+      setUploadProgress(Math.round((completed / total) * 100));
     }
 
-    try {
-      // Simple progress simulation
-      const progressInterval = setInterval(() => {
-        setUploadProgress((p) => Math.min(p + 10, 90));
-      }, 200);
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      if (res.ok) {
-        await fetchAlbum();
-      }
-    } catch (err) {
-      console.error("Upload failed:", err);
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+    setUploading(false);
+    setUploadProgress(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
+    fetchAlbum();
   }
 
   // ─── Album name update ─────────────────────────────────
   async function handleSaveAlbumName() {
-    if (!albumName.trim()) return;
+    if (!albumName.trim() || !albumId) return;
 
-    await fetch(`/api/albums/${albumId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: albumName.trim(),
-        description: albumDesc.trim(),
-      }),
+    await updateAlbum(albumId, {
+      name: albumName.trim(),
+      description: albumDesc.trim(),
     });
 
     setEditingName(false);
@@ -111,13 +104,9 @@ export default function AdminAlbumPage() {
 
   // ─── Photo metadata update ─────────────────────────────
   async function handleSavePhoto(photoId: string) {
-    await fetch(`/api/photos/${photoId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: photoTitle,
-        description: photoDesc,
-      }),
+    await updatePhoto(photoId, {
+      title: photoTitle,
+      description: photoDesc,
     });
 
     setEditingPhoto(null);
@@ -126,11 +115,7 @@ export default function AdminAlbumPage() {
 
   // ─── Toggle featured ───────────────────────────────────
   async function toggleFeatured(photo: Photo) {
-    await fetch(`/api/photos/${photo.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ featured: photo.featured ? 0 : 1 }),
-    });
+    await updatePhoto(photo.id, { featured: !photo.featured });
     fetchAlbum();
   }
 
@@ -138,7 +123,7 @@ export default function AdminAlbumPage() {
   async function handleDeletePhoto(photoId: string) {
     if (!confirm("Delete this photo?")) return;
 
-    await fetch(`/api/photos/${photoId}`, { method: "DELETE" });
+    await deletePhoto(photoId);
     fetchAlbum();
   }
 
@@ -154,6 +139,7 @@ export default function AdminAlbumPage() {
   async function handleDragEnd() {
     if (dragItem.current === null || dragOverItem.current === null) return;
     if (dragItem.current === dragOverItem.current) return;
+    if (!albumId) return;
 
     const reordered = [...photos];
     const [dragged] = reordered.splice(dragItem.current, 1);
@@ -163,22 +149,14 @@ export default function AdminAlbumPage() {
     dragItem.current = null;
     dragOverItem.current = null;
 
-    // Persist new order
     const photoIds = reordered.map((p) => p.id);
-    await fetch(`/api/albums/${albumId}/reorder`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photoIds }),
-    });
+    await reorderPhotos(albumId, photoIds);
   }
 
   // ─── Set as cover ──────────────────────────────────────
   async function setCover(photoId: string) {
-    await fetch(`/api/albums/${albumId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cover_photo_id: photoId }),
-    });
+    if (!albumId) return;
+    await updateAlbum(albumId, { cover_photo_id: photoId });
     fetchAlbum();
   }
 
@@ -358,7 +336,7 @@ export default function AdminAlbumPage() {
               {/* Photo thumbnail */}
               <div className="relative aspect-square">
                 <Image
-                  src={`/uploads/${photo.filename}`}
+                  src={photo.image_url}
                   alt={photo.title || "Photo"}
                   fill
                   className="object-cover"
@@ -366,7 +344,7 @@ export default function AdminAlbumPage() {
                 />
 
                 {/* Featured badge */}
-                {photo.featured === 1 && (
+                {photo.featured && (
                   <div className="absolute top-2 left-2 bg-[var(--accent)] text-black px-2 py-0.5 text-[10px] tracking-wider uppercase">
                     Featured
                   </div>
@@ -403,14 +381,7 @@ export default function AdminAlbumPage() {
                     className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
                     title="Edit"
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="white"
-                      strokeWidth="2"
-                    >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                       <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                       <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
@@ -421,9 +392,7 @@ export default function AdminAlbumPage() {
                     title={photo.featured ? "Unfeature" : "Feature"}
                   >
                     <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
+                      width="14" height="14" viewBox="0 0 24 24"
                       fill={photo.featured ? "var(--accent)" : "none"}
                       stroke={photo.featured ? "var(--accent)" : "white"}
                       strokeWidth="2"
@@ -436,14 +405,7 @@ export default function AdminAlbumPage() {
                     className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
                     title="Set as album cover"
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="white"
-                      strokeWidth="2"
-                    >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                       <rect x="3" y="3" width="18" height="18" rx="2" />
                       <circle cx="8.5" cy="8.5" r="1.5" />
                       <path d="M21 15l-5-5L5 21" />
@@ -454,14 +416,7 @@ export default function AdminAlbumPage() {
                     className="p-2 bg-white/10 hover:bg-red-500/30 rounded-sm transition-colors"
                     title="Delete"
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="white"
-                      strokeWidth="2"
-                    >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                       <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
                     </svg>
                   </button>
@@ -471,7 +426,7 @@ export default function AdminAlbumPage() {
               {/* Photo title */}
               <div className="p-2">
                 <p className="text-xs text-[var(--text-secondary)] truncate">
-                  {photo.title || photo.original_name}
+                  {photo.title || photo.filename}
                 </p>
               </div>
             </div>
