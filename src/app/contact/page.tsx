@@ -64,7 +64,7 @@ export default function ContactPage() {
                 rel="noopener noreferrer"
                 className="text-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors duration-300 font-light tracking-wider"
               >
-                Follow →
+                Follow &rarr;
               </a>
             </div>
           ) : null}
@@ -75,7 +75,6 @@ export default function ContactPage() {
             </p>
           )}
 
-          {/* Visual separator */}
           <div className="flex items-center justify-center gap-4 py-8">
             <div className="w-12 h-px bg-[var(--border-light)]" />
             <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />

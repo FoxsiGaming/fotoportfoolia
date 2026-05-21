@@ -40,7 +40,7 @@ export default function HomePage() {
 
   return (
     <div className="page-enter">
-      {/* ─── Hero Section ────────────────────────────────── */}
+      {/* Hero Section */}
       <section className="relative h-screen w-full overflow-hidden">
         {heroPhoto ? (
           <>
@@ -82,7 +82,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ─── Albums Section ──────────────────────────────── */}
+      {/* Albums Section */}
       {albums.length > 0 && (
         <section className="max-w-7xl mx-auto px-6 py-24">
           <h2 className="text-xs tracking-[0.4em] uppercase text-[var(--text-muted)] mb-12 text-center">
@@ -126,7 +126,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* ─── Recent Work Section ─────────────────────────── */}
+      {/* Recent Work Section */}
       {recentPhotos.length > 1 && (
         <section className="max-w-7xl mx-auto px-6 py-24 border-t border-white/5">
           <h2 className="text-xs tracking-[0.4em] uppercase text-[var(--text-muted)] mb-12 text-center">
@@ -163,7 +163,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* ─── Empty state ─────────────────────────────────── */}
+      {/* Empty state */}
       {!loading && albums.length === 0 && recentPhotos.length === 0 && (
         <section className="max-w-2xl mx-auto px-6 py-24 text-center">
           <p className="text-[var(--text-muted)] text-sm tracking-wider mb-6">

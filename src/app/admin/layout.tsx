@@ -20,13 +20,11 @@ export default function AdminLayout({
   const router = useRouter();
 
   useEffect(() => {
-    // Check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -58,7 +56,6 @@ export default function AdminLayout({
     router.push("/admin");
   }
 
-  // Loading
   if (loading) {
     return (
       <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center">
@@ -67,7 +64,6 @@ export default function AdminLayout({
     );
   }
 
-  // Login screen
   if (!user) {
     return (
       <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center px-6">
@@ -124,10 +120,8 @@ export default function AdminLayout({
     );
   }
 
-  // Authenticated admin layout
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
-      {/* Admin top bar */}
       <header className="sticky top-0 z-50 bg-[var(--bg-secondary)] border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
