@@ -264,8 +264,25 @@ function AdminAlbumContent() {
           )}
         </div>
 
-        {/* Upload button */}
-        <div>
+        {/* Loadout selector + Upload button */}
+        <div className="flex items-center gap-3">
+          {/* Loadout dropdown */}
+          {loadouts.length > 0 && (
+            <select
+              value={selectedLoadoutId}
+              onChange={(e) => setSelectedLoadoutId(e.target.value)}
+              className="bg-[var(--bg-tertiary)] border border-white/10 px-3 py-2 text-xs text-[var(--text-secondary)] tracking-wider focus:border-[var(--accent)] focus:outline-none rounded-sm appearance-none cursor-pointer min-w-[160px]"
+              title="Assign a gear loadout to uploaded photos"
+            >
+              <option value="">No loadout</option>
+              {loadouts.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
