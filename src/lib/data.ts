@@ -263,6 +263,51 @@ export async function deletePhoto(id: string): Promise<boolean> {
   return !error;
 }
 
+/**
+ * Delete multiple photos at once — removes files from storage
+ * and records from the database in batch.
+ */
+export async function deletePhotos(photoIds: string[]): Promise<boolean> {
+  if (photoIds.length === 0) return true;
+
+  // 1. Fetch filenames for all selected photos
+  const { data: photos, error: fetchError } = await supabase
+    .from("photos")
+    .select("id, filename")
+    .in("id", photoIds);
+
+  if (fetchError || !photos) {
+    console.error("Error fetching photos for bulk delete:", fetchError);
+    return false;
+  }
+
+  // 2. Remove files from storage (Supabase accepts an array)
+  const filenames = photos.map((p) => p.filename).filter(Boolean);
+  if (filenames.length > 0) {
+    const { error: storageError } = await supabase.storage
+      .from("photos")
+      .remove(filenames);
+
+    if (storageError) {
+      console.error("Storage bulk delete error:", storageError);
+      // Continue to delete DB records even if storage fails
+    }
+  }
+
+  // 3. Delete all records from the database
+  const { error: dbError } = await supabase
+    .from("photos")
+    .delete()
+    .in("id", photoIds);
+
+  if (dbError) {
+    console.error("DB bulk delete error:", dbError);
+    return false;
+  }
+
+  return true;
+}
+
 export async function reorderPhotos(
   albumId: string,
   photoIds: string[]

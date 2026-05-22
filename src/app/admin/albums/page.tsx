@@ -10,6 +10,7 @@ import {
   updateAlbum,
   updatePhoto,
   deletePhoto,
+  deletePhotos,
   uploadPhoto,
   reorderPhotos,
   getAllLoadouts,
@@ -50,6 +51,11 @@ function AdminAlbumContent() {
   // Loadout selector for uploads
   const [loadouts, setLoadouts] = useState<Loadout[]>([]);
   const [selectedLoadoutId, setSelectedLoadoutId] = useState<string>("");
+
+  // Selection mode for mass delete
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragItem = useRef<number | null>(null);
@@ -144,6 +150,44 @@ function AdminAlbumContent() {
     if (!confirm("Delete this photo?")) return;
 
     await deletePhoto(photoId);
+    fetchAlbum();
+  }
+
+  // ─── Selection & mass delete ────────────────────────────
+  function toggleSelect(photoId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(photoId)) {
+        next.delete(photoId);
+      } else {
+        next.add(photoId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === photos.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(photos.map((p) => p.id)));
+    }
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  async function handleMassDelete() {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!confirm(`Delete ${count} photo${count !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+
+    setDeleting(true);
+    await deletePhotos(Array.from(selectedIds));
+    setDeleting(false);
+    exitSelectMode();
     fetchAlbum();
   }
 
@@ -259,6 +303,17 @@ function AdminAlbumContent() {
               <p className="text-xs text-[var(--text-muted)] mt-1">
                 {photos.length} photo{photos.length !== 1 ? "s" : ""} · Click
                 name to edit
+                {photos.length > 0 && !selectMode && (
+                  <>
+                    {" · "}
+                    <button
+                      onClick={() => setSelectMode(true)}
+                      className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors underline underline-offset-2"
+                    >
+                      Select
+                    </button>
+                  </>
+                )}
               </p>
             </div>
           )}
@@ -334,6 +389,62 @@ function AdminAlbumContent() {
         </div>
       )}
 
+      {/* Selection toolbar */}
+      {selectMode && photos.length > 0 && (
+        <div className="flex items-center justify-between bg-[var(--bg-secondary)] border border-white/10 rounded-sm px-4 py-3 mb-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-xs tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <div className={`w-4 h-4 border rounded-sm flex items-center justify-center transition-colors ${
+                selectedIds.size === photos.length
+                  ? "bg-[var(--accent)] border-[var(--accent)]"
+                  : "border-white/20"
+              }`}>
+                {selectedIds.size === photos.length && (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </div>
+              Select All
+            </button>
+            <span className="text-xs text-[var(--text-muted)]">
+              {selectedIds.size} of {photos.length} selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleMassDelete}
+              disabled={selectedIds.size === 0 || deleting}
+              className="flex items-center gap-2 bg-red-500/80 hover:bg-red-500 text-white px-4 py-1.5 text-xs tracking-widest uppercase transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              {deleting ? (
+                <>
+                  <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  </svg>
+                  Delete ({selectedIds.size})
+                </>
+              )}
+            </button>
+            <button
+              onClick={exitSelectMode}
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] tracking-wider transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Photos grid (drag & drop) */}
       {photos.length === 0 ? (
         <div className="text-center py-24 bg-[var(--bg-secondary)] border border-white/5 rounded-sm border-dashed">
@@ -363,12 +474,21 @@ function AdminAlbumContent() {
           {photos.map((photo, index) => (
             <div
               key={photo.id}
-              draggable
-              onDragStart={() => handleDragStart(index)}
-              onDragEnter={() => handleDragEnter(index)}
-              onDragEnd={handleDragEnd}
+              draggable={!selectMode}
+              onDragStart={() => !selectMode && handleDragStart(index)}
+              onDragEnter={() => !selectMode && handleDragEnter(index)}
+              onDragEnd={!selectMode ? handleDragEnd : undefined}
               onDragOver={(e) => e.preventDefault()}
-              className="group relative bg-[var(--bg-secondary)] border border-white/5 rounded-sm overflow-hidden cursor-grab active:cursor-grabbing hover:border-white/10 transition-all"
+              onClick={selectMode ? () => toggleSelect(photo.id) : undefined}
+              className={`group relative bg-[var(--bg-secondary)] border rounded-sm overflow-hidden transition-all ${
+                selectMode
+                  ? `cursor-pointer ${
+                      selectedIds.has(photo.id)
+                        ? "border-[var(--accent)] ring-1 ring-[var(--accent)]"
+                        : "border-white/5 hover:border-white/20"
+                    }`
+                  : "border-white/5 cursor-grab active:cursor-grabbing hover:border-white/10"
+              }`}
             >
               {/* Photo thumbnail */}
               <div className="relative aspect-square">
@@ -376,88 +496,111 @@ function AdminAlbumContent() {
                   src={photo.image_url}
                   alt={photo.title || "Photo"}
                   fill
-                  className="object-cover"
+                  className={`object-cover transition-opacity ${
+                    selectMode && selectedIds.has(photo.id) ? "opacity-75" : ""
+                  }`}
                   sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
                 />
 
+                {/* Selection checkbox (select mode) */}
+                {selectMode && (
+                  <div className="absolute top-2 left-2 z-10">
+                    <div className={`w-5 h-5 border-2 rounded-sm flex items-center justify-center transition-colors ${
+                      selectedIds.has(photo.id)
+                        ? "bg-[var(--accent)] border-[var(--accent)]"
+                        : "border-white/50 bg-black/30"
+                    }`}>
+                      {selectedIds.has(photo.id) && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Featured badge */}
-                {photo.featured && (
+                {photo.featured && !selectMode && (
                   <div className="absolute top-2 left-2 bg-[var(--accent)] text-black px-2 py-0.5 text-[10px] tracking-wider uppercase">
                     Featured
                   </div>
                 )}
 
-                {/* Drag handle indicator */}
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="2"
-                    className="drop-shadow-lg"
-                  >
-                    <circle cx="9" cy="5" r="1" />
-                    <circle cx="15" cy="5" r="1" />
-                    <circle cx="9" cy="12" r="1" />
-                    <circle cx="15" cy="12" r="1" />
-                    <circle cx="9" cy="19" r="1" />
-                    <circle cx="15" cy="19" r="1" />
-                  </svg>
-                </div>
-
-                {/* Action overlay */}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-                  <button
-                    onClick={() => {
-                      setEditingPhoto(photo.id);
-                      setPhotoTitle(photo.title || "");
-                      setPhotoDesc(photo.description || "");
-                    }}
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
-                    title="Edit"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => toggleFeatured(photo)}
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
-                    title={photo.featured ? "Unfeature" : "Feature"}
-                  >
+                {/* Drag handle indicator (normal mode only) */}
+                {!selectMode && (
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <svg
-                      width="14" height="14" viewBox="0 0 24 24"
-                      fill={photo.featured ? "var(--accent)" : "none"}
-                      stroke={photo.featured ? "var(--accent)" : "white"}
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="white"
                       strokeWidth="2"
+                      className="drop-shadow-lg"
                     >
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      <circle cx="9" cy="5" r="1" />
+                      <circle cx="15" cy="5" r="1" />
+                      <circle cx="9" cy="12" r="1" />
+                      <circle cx="15" cy="12" r="1" />
+                      <circle cx="9" cy="19" r="1" />
+                      <circle cx="15" cy="19" r="1" />
                     </svg>
-                  </button>
-                  <button
-                    onClick={() => setCover(photo.id)}
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
-                    title="Set as album cover"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                      <circle cx="8.5" cy="8.5" r="1.5" />
-                      <path d="M21 15l-5-5L5 21" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => handleDeletePhoto(photo.id)}
-                    className="p-2 bg-white/10 hover:bg-red-500/30 rounded-sm transition-colors"
-                    title="Delete"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                    </svg>
-                  </button>
-                </div>
+                  </div>
+                )}
+
+                {/* Action overlay (normal mode only) */}
+                {!selectMode && (
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                    <button
+                      onClick={() => {
+                        setEditingPhoto(photo.id);
+                        setPhotoTitle(photo.title || "");
+                        setPhotoDesc(photo.description || "");
+                      }}
+                      className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
+                      title="Edit"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => toggleFeatured(photo)}
+                      className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
+                      title={photo.featured ? "Unfeature" : "Feature"}
+                    >
+                      <svg
+                        width="14" height="14" viewBox="0 0 24 24"
+                        fill={photo.featured ? "var(--accent)" : "none"}
+                        stroke={photo.featured ? "var(--accent)" : "white"}
+                        strokeWidth="2"
+                      >
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setCover(photo.id)}
+                      className="p-2 bg-white/10 hover:bg-white/20 rounded-sm transition-colors"
+                      title="Set as album cover"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <path d="M21 15l-5-5L5 21" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleDeletePhoto(photo.id)}
+                      className="p-2 bg-white/10 hover:bg-red-500/30 rounded-sm transition-colors"
+                      title="Delete"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Photo title */}
@@ -521,10 +664,12 @@ function AdminAlbumContent() {
         </div>
       )}
 
-      {/* Drag reorder tip */}
+      {/* Bottom tip */}
       {photos.length > 1 && (
         <p className="text-center text-[var(--text-muted)] text-xs tracking-wider mt-8">
-          Drag and drop photos to reorder them
+          {selectMode
+            ? "Click photos to select them, then delete in bulk"
+            : "Drag and drop photos to reorder them"}
         </p>
       )}
     </div>
