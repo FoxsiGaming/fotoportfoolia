@@ -3,7 +3,7 @@
  * These are client-side calls that run in the browser.
  */
 import { supabase } from "./supabase";
-import type { Album, Photo, SiteSettings } from "./types";
+import type { Album, Photo, SiteSettings, Loadout } from "./types";
 
 // ─── Albums ──────────────────────────────────────────────
 
@@ -195,9 +195,11 @@ export async function createPhoto(data: {
   album_id: string;
   image_url: string;
   filename: string;
+  original_filename?: string;
   title?: string;
   width?: number;
   height?: number;
+  loadout_id?: string | null;
 }): Promise<Photo | null> {
   // Get max sort order in album
   const { data: maxRow } = await supabase
@@ -216,10 +218,12 @@ export async function createPhoto(data: {
       album_id: data.album_id,
       image_url: data.image_url,
       filename: data.filename,
+      original_filename: data.original_filename || data.filename,
       title: data.title || data.filename.replace(/\.[^.]+$/, ""),
       width: data.width || 0,
       height: data.height || 0,
       sort_order: sortOrder,
+      loadout_id: data.loadout_id || null,
     })
     .select()
     .single();
@@ -234,7 +238,7 @@ export async function createPhoto(data: {
 export async function updatePhoto(
   id: string,
   updates: Partial<
-    Pick<Photo, "title" | "description" | "featured" | "album_id">
+    Pick<Photo, "title" | "description" | "featured" | "album_id" | "loadout_id">
   >
 ): Promise<Photo | null> {
   const { data, error } = await supabase
@@ -277,32 +281,140 @@ export async function reorderPhotos(
 
 // ─── Upload ──────────────────────────────────────────────
 
+/**
+ * Upload a photo with smart auto-renaming.
+ *
+ * Storage filename becomes: AlbumName_<number>.<ext>
+ * e.g. "Portrait Session" album → Portrait_Session_1.jpg
+ *
+ * The original user filename is preserved in `original_filename`.
+ */
 export async function uploadPhoto(
   file: File,
-  albumId: string
+  albumId: string,
+  loadoutId?: string | null
 ): Promise<Photo | null> {
-  const ext = file.name.split(".").pop();
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  // 1. Get album name for the smart filename
+  const album = await getAlbumById(albumId);
+  if (!album) {
+    console.error("Upload error: album not found");
+    return null;
+  }
 
+  const ext = file.name.split(".").pop() || "jpg";
+  const originalFilename = file.name;
+
+  // 2. Call the DB function to find the next available number (fills gaps)
+  const { data: nextNumResult, error: rpcError } = await supabase
+    .rpc("get_next_photo_number", { p_album_id: albumId });
+
+  if (rpcError) {
+    console.error("Error getting next photo number:", rpcError);
+    return null;
+  }
+
+  const nextNumber: number = nextNumResult ?? 1;
+
+  // 3. Build the smart filename: "Album_Name_3.jpg"
+  const smartFilename = `${album.name.trim().replace(/\s+/g, "_")}_${nextNumber}.${ext.toLowerCase()}`;
+
+  // 4. Upload to Supabase Storage using the smart filename
   const { error: uploadError } = await supabase.storage
     .from("photos")
-    .upload(filename, file);
+    .upload(smartFilename, file);
 
   if (uploadError) {
     console.error("Upload error:", uploadError);
     return null;
   }
 
+  // 5. Get the public URL
   const {
     data: { publicUrl },
-  } = supabase.storage.from("photos").getPublicUrl(filename);
+  } = supabase.storage.from("photos").getPublicUrl(smartFilename);
 
+  // 6. Create the photo record
   return createPhoto({
     album_id: albumId,
     image_url: publicUrl,
-    filename,
-    title: file.name.replace(/\.[^.]+$/, ""),
+    filename: smartFilename,
+    original_filename: originalFilename,
+    title: smartFilename.replace(/\.[^.]+$/, ""),  // "Portrait_Session_3"
+    loadout_id: loadoutId || null,
   });
+}
+
+// ─── Loadouts ───────────────────────────────────────────
+
+export async function getAllLoadouts(): Promise<Loadout[]> {
+  const { data, error } = await supabase
+    .from("loadouts")
+    .select("*")
+    .order("sort_order", { ascending: true });
+
+  if (error) return [];
+  return data || [];
+}
+
+export async function getLoadoutById(id: string): Promise<Loadout | null> {
+  const { data, error } = await supabase
+    .from("loadouts")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error || !data) return null;
+  return data;
+}
+
+export async function createLoadout(
+  loadout: Omit<Loadout, "id" | "sort_order" | "created_at" | "updated_at">
+): Promise<Loadout | null> {
+  // Get max sort order
+  const { data: maxRow } = await supabase
+    .from("loadouts")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .single();
+
+  const sortOrder = (maxRow?.sort_order ?? -1) + 1;
+
+  const { data, error } = await supabase
+    .from("loadouts")
+    .insert({ ...loadout, sort_order: sortOrder })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error creating loadout:", error);
+    return null;
+  }
+  return data;
+}
+
+export async function updateLoadout(
+  id: string,
+  updates: Partial<Omit<Loadout, "id" | "created_at" | "updated_at">>
+): Promise<Loadout | null> {
+  const { data, error } = await supabase
+    .from("loadouts")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error updating loadout:", error);
+    return null;
+  }
+  return data;
+}
+
+export async function deleteLoadout(id: string): Promise<boolean> {
+  // Photos referencing this loadout will have loadout_id set to NULL (ON DELETE SET NULL)
+  const { error } = await supabase.from("loadouts").delete().eq("id", id);
+  return !error;
 }
 
 // ─── Settings ────────────────────────────────────────────

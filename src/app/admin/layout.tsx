@@ -143,6 +143,16 @@ export default function AdminLayout({
                 Albums
               </Link>
               <Link
+                href="/admin/gear"
+                className={`text-xs tracking-wider transition-colors ${
+                  pathname === "/admin/gear"
+                    ? "text-[var(--accent)]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                }`}
+              >
+                Gear
+              </Link>
+              <Link
                 href="/admin/settings"
                 className={`text-xs tracking-wider transition-colors ${
                   pathname === "/admin/settings"

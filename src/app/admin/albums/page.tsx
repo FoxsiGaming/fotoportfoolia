@@ -12,8 +12,9 @@ import {
   deletePhoto,
   uploadPhoto,
   reorderPhotos,
+  getAllLoadouts,
 } from "@/lib/data";
-import type { Album, Photo } from "@/lib/types";
+import type { Album, Photo, Loadout } from "@/lib/types";
 
 export default function AdminAlbumPage() {
   return (
@@ -46,6 +47,10 @@ function AdminAlbumContent() {
   const [photoTitle, setPhotoTitle] = useState("");
   const [photoDesc, setPhotoDesc] = useState("");
 
+  // Loadout selector for uploads
+  const [loadouts, setLoadouts] = useState<Loadout[]>([]);
+  const [selectedLoadoutId, setSelectedLoadoutId] = useState<string>("");
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
@@ -76,6 +81,7 @@ function AdminAlbumContent() {
 
   useEffect(() => {
     fetchAlbum();
+    getAllLoadouts().then(setLoadouts);
   }, [fetchAlbum]);
 
   // ─── Upload ────────────────────────────────────────────
@@ -90,7 +96,7 @@ function AdminAlbumContent() {
     let completed = 0;
 
     for (let i = 0; i < files.length; i++) {
-      await uploadPhoto(files[i], albumId);
+      await uploadPhoto(files[i], albumId, selectedLoadoutId || null);
       completed++;
       setUploadProgress(Math.round((completed / total) * 100));
     }
