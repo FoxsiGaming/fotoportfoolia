@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -16,6 +16,20 @@ import {
 import type { Album, Photo } from "@/lib/types";
 
 export default function AdminAlbumPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24">
+          <div className="w-6 h-6 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <AdminAlbumContent />
+    </Suspense>
+  );
+}
+
+function AdminAlbumContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const albumId = searchParams.get("id");

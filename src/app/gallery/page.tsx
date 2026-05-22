@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -9,6 +9,20 @@ import { PhotoGrid } from "@/components/PhotoGrid";
 import type { Album, Photo } from "@/lib/types";
 
 export default function GalleryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
+          <div className="w-6 h-6 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <GalleryContent />
+    </Suspense>
+  );
+}
+
+function GalleryContent() {
   const searchParams = useSearchParams();
   const albumSlug = searchParams.get("album");
 
